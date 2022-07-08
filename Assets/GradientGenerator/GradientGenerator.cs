@@ -19,23 +19,27 @@ public class GradientGenerator: EditorWindow
    private static long timeToCreate;
 
    public static bool reverse;
-   public static GradientGeneratorEnums.BlendType blendType;
-   public static GradientGeneratorEnums.GradientDirection direction;
+   public static Helpers.BlendType blendType;
+   public static Helpers.GradientDirection direction;
    public static string defaultSaveFolder;
    public static string fileName;
    [Range(0, 1)]
    public static float slide;
    [Range(1, 10000)]
    public static int size = 128;
-   private static bool onePixel;
+   [Range(0, 360)]
+   public static int angle = 0;
+   private static int refreshFps = 30;
    private static bool alwaysRefresh;
 
    private static Texture2D background;
    private static string backgroundName;
+   private static int skippedFrames;
+   private static int framesToSkip;
 
    [MenuItem("Tools/Gradient Generator")]
    public static void Init() {
-      prevTexture = null;
+      prevTexture = new Texture2D(size, size, TextureFormat.ARGB32, false);
       currentGradientWindow = GetWindow(typeof(GradientGenerator));
       gradientPicker = new Gradient();
       gradientSize = new Vector2(200, 1);
@@ -65,30 +69,34 @@ public class GradientGenerator: EditorWindow
       GUI.DrawTexture(new Rect((position.width - 256) / 2, 10, 256, 20), icon);
       EditorGUILayout.Space(50);
       gradientPicker = EditorGUILayout.GradientField("Gradient", gradientPicker);
+
       EditorGUILayout.BeginHorizontal();
-      direction = (GradientGeneratorEnums.GradientDirection)EditorGUILayout.EnumPopup("Gradient Direction", direction);
+      direction = (Helpers.GradientDirection)EditorGUILayout.EnumPopup("Gradient Direction", direction);
       float originalValue = EditorGUIUtility.labelWidth;
       EditorGUIUtility.labelWidth = 50;
       reverse = EditorGUILayout.Toggle("Reverse", reverse, GUILayout.Width(120));
       EditorGUIUtility.labelWidth = originalValue;
       EditorGUILayout.EndHorizontal();
 
-      if(direction == GradientGeneratorEnums.GradientDirection.Radial) {
+      if(direction == Helpers.GradientDirection.Angle)
+         angle = EditorGUILayout.IntSlider("Angle: ", angle, 0, 360);
+
+      if (direction == Helpers.GradientDirection.Radial) {
          gradientSize.y = prevTextureSizze;
          gradientSize.x = prevTextureSizze;
          if(slide == -1)
             slide = 0.5f;
          slide = EditorGUILayout.Slider("Scale", slide, 0f, 1f);
-      } else if(direction == GradientGeneratorEnums.GradientDirection.Horizontal) {
+      } else if(direction == Helpers.GradientDirection.Horizontal) {
          gradientSize.y = 1;
          gradientSize.x = prevTextureSizze;
-      } else if(direction == GradientGeneratorEnums.GradientDirection.Vertical) {
+      } else if(direction == Helpers.GradientDirection.Vertical) {
          gradientSize.x = 1;
          gradientSize.y = prevTextureSizze;
       }
       DrawBackgroundPicker();
       DrawDivider();
-      GUILayout.BeginArea(new Rect((Screen.width / 2) - 40, (direction == GradientGeneratorEnums.GradientDirection.Radial) ? 180 : 160, 80, 100));
+      GUILayout.BeginArea(new Rect((Screen.width / 2) - 40, (Helpers.ExpandedMenu(direction)) ? 180 : 160, 80, 100));
       EditorGUILayout.LabelField("<size=18><b>Preview</b></size>", style);
       GUILayout.EndArea();
       if(GUILayout.Button("Refresh")) {
@@ -140,22 +148,32 @@ public class GradientGenerator: EditorWindow
       if(moreOptionsBool) {
          currentGradientWindow.minSize = new Vector2(350, 710);
 
-         GUILayout.BeginArea(new Rect(20, (direction == GradientGeneratorEnums.GradientDirection.Radial) ? 680 : 665, 350, 100));
-         if(direction == GradientGeneratorEnums.GradientDirection.Horizontal) {
-            onePixel = EditorGUILayout.Toggle("Crunch to 1px height", onePixel, GUILayout.Width(120));
-         }
-         if(direction == GradientGeneratorEnums.GradientDirection.Vertical) {
-            onePixel = EditorGUILayout.Toggle("Crunch to 1px width", onePixel, GUILayout.Width(120));
-         }
-         if(direction == GradientGeneratorEnums.GradientDirection.Radial) {
-            EditorGUI.BeginDisabledGroup(true);
-            EditorGUILayout.Toggle("Crunch to 1px width", false, GUILayout.Width(120));
-            EditorGUI.EndDisabledGroup();
-         }
-
+         GUILayout.BeginArea(new Rect(20, (Helpers.ExpandedMenu(direction)) ? 680 : 660, 350, 100));
          alwaysRefresh = EditorGUILayout.Toggle("Always refresh", alwaysRefresh, GUILayout.Width(120));
 
-         if(timeToCreate != 0) {
+         GUILayout.BeginHorizontal();
+         EditorGUILayout.LabelField($"Preview refresh fps: {refreshFps}", GUILayout.MaxWidth(150));
+
+         if (GUILayout.Button("2"))
+         {
+            refreshFps = 2;
+         }
+         if (GUILayout.Button("5"))
+         {
+            refreshFps = 5;
+         }
+         if (GUILayout.Button("10"))
+         {
+            refreshFps = 10;
+         }
+         if (GUILayout.Button("30"))
+         {
+            refreshFps = 30;
+         }
+
+         GUILayout.EndHorizontal();
+
+         if (timeToCreate != 0) {
             GUILayout.Label($"Last image create time: { timeToCreate } milliseconds");
          }
          GUILayout.EndArea();
@@ -164,13 +182,25 @@ public class GradientGenerator: EditorWindow
             currentGradientWindow.minSize = new Vector2(350, 660);
       }
 
-      if(alwaysRefresh)
-         UpdateGradient(out prevTexture, prevTextureSizze, background);
+      if (alwaysRefresh)
+      {
+         framesToSkip = 60 / refreshFps;
+         if(skippedFrames >= framesToSkip)
+         {
+            UpdateGradient(out prevTexture, prevTextureSizze, background);
+            skippedFrames = 0;
+         }
+         else
+         {
+            skippedFrames++;
+         }
+      }
+         
    }
 
    private void DrawBackgroundPicker() {
       EditorGUILayout.Space(10);
-      blendType = (GradientGeneratorEnums.BlendType)EditorGUILayout.EnumPopup("Blend Type", blendType);
+      blendType = (Helpers.BlendType)EditorGUILayout.EnumPopup("Blend Type", blendType);
       EditorGUILayout.BeginHorizontal();
       EditorGUILayout.LabelField("Background: " + (string.IsNullOrEmpty(backgroundName) ? "None" : backgroundName));
       if(GUILayout.Button("Select File...")) {
@@ -208,21 +238,22 @@ public class GradientGenerator: EditorWindow
 
    public void UpdateGradient(out Texture2D texture, int size, Texture2D bg) {
       Color tempCol;
-      if(direction == GradientGeneratorEnums.GradientDirection.Radial) {
+
+      if (direction == Helpers.GradientDirection.Radial) {
          texture = new Texture2D(size, size);
-         for(int i = 0; i < size; i++) {
-            for(int j = 0; j < size; j++) {
+         for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
                Vector2 CurrPos = new Vector2((float)i / (float)size, (float)j / (float)size);
                Vector2 MiddlePos = new Vector2(0.5f, 0.5f);
                float t = (CurrPos - MiddlePos).sqrMagnitude * Mathf.Sqrt(2);
                float time = t + (slide - 0.5f) * 2;
-               if(reverse) {
+               if (reverse) {
                   tempCol = gradientPicker.Evaluate(Mathf.Abs(1 - time));
                } else {
                   tempCol = gradientPicker.Evaluate(time);
                }
 
-               if(background != null) {
+               if (background != null) {
                   Color bgPixel = bg.GetPixelBilinear((float)i / (float)size, (float)j / (float)size);
                   tempCol = Helpers.GetFinalColor(blendType, tempCol, bgPixel);
                   tempCol.a = bgPixel.a;
@@ -231,22 +262,23 @@ public class GradientGenerator: EditorWindow
                   tempCol = Helpers.GetFinalColor(blendType, tempCol, Color.white);
                }
 
-               if(background != null) {
-                  if(background.GetPixel(i, j).a >= 0)
+               if (background != null) {
+                  if (background.GetPixel(i, j).a >= 0)
                      texture.SetPixel(i, j, tempCol);
                } else {
                   texture.SetPixel(i, j, tempCol);
                }
             }
          }
-      } else {
+      }
+      else {
          texture = new Texture2D(size, size);
-         for(int i = 0; i < size; i++) {
-            for(int j = 0; j < size; j++) {
+         for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
                tempCol = reverse
                         ? gradientPicker.Evaluate(1 - ((float)i / size))
                         : gradientPicker.Evaluate((float)i / size);
-               if(background != null) {
+               if (background != null) {
                   Color bgPixel = bg.GetPixelBilinear((float)i / (float)size, (float)j / (float)size);
                   tempCol = Helpers.GetFinalColor(blendType, tempCol, bgPixel);
                   tempCol.a = bgPixel.a;
@@ -254,9 +286,9 @@ public class GradientGenerator: EditorWindow
                } else {
                   tempCol = Helpers.GetFinalColor(blendType, tempCol, Color.white);
                }
-               if(direction == GradientGeneratorEnums.GradientDirection.Horizontal) {
-                  if(background != null) {
-                     if(background.GetPixel(i, j).a > 0)
+               if (direction == Helpers.GradientDirection.Horizontal) {
+                  if (background != null) {
+                     if (background.GetPixel(i, j).a > 0)
                         texture.SetPixel(i, j, tempCol);
                      else
                         texture.SetPixel(i, j, Color.clear);
@@ -264,8 +296,8 @@ public class GradientGenerator: EditorWindow
                      texture.SetPixel(i, j, tempCol);
                   }
                } else {
-                  if(background != null) {
-                     if(background.GetPixel(j, i).a > 0)
+                  if (background != null) {
+                     if (background.GetPixel(j, i).a > 0)
                         texture.SetPixel(j, i, tempCol);
                      else
                         texture.SetPixel(j, i, Color.clear);
@@ -277,7 +309,15 @@ public class GradientGenerator: EditorWindow
          }
       }
       texture.filterMode = FilterMode.Point;
-      texture.Apply();
+
+      if(direction == Helpers.GradientDirection.Angle)
+      {
+         texture = Helpers.ComputeGradientUnderAngle(angle, prevTextureSizze, texture);
+      }
+      else
+      {
+         texture.Apply();
+      }
    }
 
    public void CreateGradient() {
@@ -294,4 +334,6 @@ public class GradientGenerator: EditorWindow
       }
       AssetDatabase.Refresh();
    }
+
+
 }
