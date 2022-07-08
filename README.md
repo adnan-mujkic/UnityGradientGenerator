@@ -8,11 +8,10 @@ This is a tool I developed out of necessity and also because I needed a way to q
 <br /><br />
 
 Features:
-* Supports horizontal, vertical and radial gradients
+* Supports horizontal, vertical, angled and radial gradients
 * Export as .png wherever you want in the project 
 * Add an image (transparent or not) and apply a gradient to it
-* Option to compress horizontal gradients to 1px height and vertical gradients to 1px width so they use up less space
 <br />
 
 Planned:
-* Angle gradient support and further optimizations
+* Presets
