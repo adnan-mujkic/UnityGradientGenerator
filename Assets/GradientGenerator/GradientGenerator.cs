@@ -16,7 +16,6 @@ public class GradientGenerator: EditorWindow
    public static Vector2 gradientSize;
    public static Gradient gradientPicker;
    private bool moreOptionsBool;
-   private static long timeToCreate;
 
    public static bool reverse;
    public static Helpers.BlendType blendType;
@@ -29,10 +28,13 @@ public class GradientGenerator: EditorWindow
    public static int size = 128;
    [Range(0, 360)]
    public static int angle = 0;
-   private static int refreshFps = 30;
-   private static bool alwaysRefresh;
+   [Range(0, 100)]
+   public static int opacity = 100;
+   private static int refreshFps = 10;
+   private static bool alwaysRefresh = false;
 
    private static Texture2D background;
+   private static Texture2D backgroundSmall;
    private static string backgroundName;
    private static int skippedFrames;
    private static int framesToSkip;
@@ -49,7 +51,6 @@ public class GradientGenerator: EditorWindow
       currentGradientWindow.minSize = new Vector2(350, 660);
 
       slide = -1;
-      timeToCreate = 0;
       icon = new Texture2D(1, 1);
       icon.LoadImage(File.ReadAllBytes(Path.Combine(Application.dataPath, "GradientGenerator", "Gradient Generator-logos_transparent.png")));
    }
@@ -81,6 +82,8 @@ public class GradientGenerator: EditorWindow
       if(direction == Helpers.GradientDirection.Angle)
          angle = EditorGUILayout.IntSlider("Angle: ", angle, 0, 360);
 
+      opacity = EditorGUILayout.IntSlider("Opacity: ", opacity, 0, 100);
+
       if (direction == Helpers.GradientDirection.Radial) {
          gradientSize.y = prevTextureSizze;
          gradientSize.x = prevTextureSizze;
@@ -96,11 +99,11 @@ public class GradientGenerator: EditorWindow
       }
       DrawBackgroundPicker();
       DrawDivider();
-      GUILayout.BeginArea(new Rect((Screen.width / 2) - 40, (Helpers.ExpandedMenu(direction)) ? 180 : 160, 80, 100));
+      GUILayout.BeginArea(new Rect((Screen.width / 2) - 40, (Helpers.ExpandedMenu(direction)) ? 200 : 180, 80, 100));
       EditorGUILayout.LabelField("<size=18><b>Preview</b></size>", style);
       GUILayout.EndArea();
       if(GUILayout.Button("Refresh")) {
-         UpdateGradient(out prevTexture, prevTextureSizze, background);
+         UpdateGradient(out prevTexture, prevTextureSizze, backgroundSmall);
       }
       var textureRect = EditorGUILayout.GetControlRect();
       textureRect.x = (position.width - prevTextureSizze) / 2;
@@ -108,7 +111,10 @@ public class GradientGenerator: EditorWindow
       textureRect.width = prevTextureSizze;
       textureRect.height = prevTextureSizze;
 
-      GUI.DrawTexture(textureRect, background?? Helpers.GetDefaultBackground(prevTextureSizze));
+      GUI.DrawTexture(textureRect, Helpers.GetDefaultBackground(prevTextureSizze));
+      if(backgroundSmall)
+         GUI.DrawTexture(textureRect, backgroundSmall);
+
       if(prevTexture != null) {
          GUI.DrawTexture(textureRect, prevTexture);
       }
@@ -148,7 +154,7 @@ public class GradientGenerator: EditorWindow
       if(moreOptionsBool) {
          currentGradientWindow.minSize = new Vector2(350, 710);
 
-         GUILayout.BeginArea(new Rect(20, (Helpers.ExpandedMenu(direction)) ? 680 : 660, 350, 100));
+         GUILayout.BeginArea(new Rect(20, (Helpers.ExpandedMenu(direction)) ? 700 : 680, 350, 100));
          alwaysRefresh = EditorGUILayout.Toggle("Always refresh", alwaysRefresh, GUILayout.Width(120));
 
          GUILayout.BeginHorizontal();
@@ -172,10 +178,6 @@ public class GradientGenerator: EditorWindow
          }
 
          GUILayout.EndHorizontal();
-
-         if (timeToCreate != 0) {
-            GUILayout.Label($"Last image create time: { timeToCreate } milliseconds");
-         }
          GUILayout.EndArea();
       } else {
          if(currentGradientWindow.minSize != new Vector2(350, 660))
@@ -187,7 +189,7 @@ public class GradientGenerator: EditorWindow
          framesToSkip = 60 / refreshFps;
          if(skippedFrames >= framesToSkip)
          {
-            UpdateGradient(out prevTexture, prevTextureSizze, background);
+            UpdateGradient(out prevTexture, prevTextureSizze, backgroundSmall);
             skippedFrames = 0;
          }
          else
@@ -206,22 +208,22 @@ public class GradientGenerator: EditorWindow
       if(GUILayout.Button("Select File...")) {
          var imagePath = EditorUtility.OpenFilePanel("Select Image", Application.dataPath, "png,jpg,jpeg,tiff,bmp");
          if(Helpers.IsValidExtension(imagePath)) {
-            background = new Texture2D(prevTextureSizze, prevTextureSizze);
+            backgroundSmall = new Texture2D(prevTextureSizze, prevTextureSizze);
             try {
                var data = File.ReadAllBytes(Path.GetFullPath(imagePath));
-               background.LoadImage(data);
+               background = new Texture2D(1, 1);
+               ImageConversion.LoadImage(background, data);
+
+               backgroundSmall = Helpers.ScaleTexture(background, prevTextureSizze, prevTextureSizze);
                backgroundName = Path.GetFileName(imagePath);
-               background = Helpers.ScaleTexture(background, prevTextureSizze, prevTextureSizze);
-               Debug.Log("Succesfully imported background: " + imagePath);
             } catch(Exception) {
                Debug.LogError("File not an image!");
             }
-         } else {
-            Debug.LogError("File not an image!");
          }
       }
       if(GUILayout.Button("Clear")) {
          background = null;
+         backgroundSmall = null;
          backgroundName = string.Empty;
       }
       EditorGUILayout.EndHorizontal();
@@ -253,21 +255,7 @@ public class GradientGenerator: EditorWindow
                   tempCol = gradientPicker.Evaluate(time);
                }
 
-               if (background != null) {
-                  Color bgPixel = bg.GetPixelBilinear((float)i / (float)size, (float)j / (float)size);
-                  tempCol = Helpers.GetFinalColor(blendType, tempCol, bgPixel);
-                  tempCol.a = bgPixel.a;
-
-               } else {
-                  tempCol = Helpers.GetFinalColor(blendType, tempCol, Color.white);
-               }
-
-               if (background != null) {
-                  if (background.GetPixel(i, j).a >= 0)
-                     texture.SetPixel(i, j, tempCol);
-               } else {
-                  texture.SetPixel(i, j, tempCol);
-               }
+               texture.SetPixel(i, j, tempCol);
             }
          }
       }
@@ -276,62 +264,53 @@ public class GradientGenerator: EditorWindow
          for (int i = 0; i < size; i++) {
             for (int j = 0; j < size; j++) {
                tempCol = reverse
-                        ? gradientPicker.Evaluate(1 - ((float)i / size))
-                        : gradientPicker.Evaluate((float)i / size);
-               if (background != null) {
-                  Color bgPixel = bg.GetPixelBilinear((float)i / (float)size, (float)j / (float)size);
-                  tempCol = Helpers.GetFinalColor(blendType, tempCol, bgPixel);
-                  tempCol.a = bgPixel.a;
+                        ? gradientPicker.Evaluate((float)i / size)
+                        : gradientPicker.Evaluate(1 - ((float)i / size));
 
-               } else {
-                  tempCol = Helpers.GetFinalColor(blendType, tempCol, Color.white);
-               }
-               if (direction == Helpers.GradientDirection.Horizontal) {
-                  if (background != null) {
-                     if (background.GetPixel(i, j).a > 0)
-                        texture.SetPixel(i, j, tempCol);
-                     else
-                        texture.SetPixel(i, j, Color.clear);
-                  } else {
-                     texture.SetPixel(i, j, tempCol);
-                  }
-               } else {
-                  if (background != null) {
-                     if (background.GetPixel(j, i).a > 0)
-                        texture.SetPixel(j, i, tempCol);
-                     else
-                        texture.SetPixel(j, i, Color.clear);
-                  } else {
-                     texture.SetPixel(j, i, tempCol);
-                  }
-               }
+               texture.SetPixel(j, i, tempCol);
             }
          }
       }
-      texture.filterMode = FilterMode.Point;
-
-      if(direction == Helpers.GradientDirection.Angle)
-      {
-         texture = Helpers.ComputeGradientUnderAngle(angle, prevTextureSizze, texture);
+      texture.Apply();
+      texture.filterMode = FilterMode.Bilinear;
+      if(direction == Helpers.GradientDirection.Horizontal) {
+         texture = Helpers.ComputeGradientUnderAngle(90, size, texture);
       }
-      else
+      else if(direction == Helpers.GradientDirection.Angle)
       {
-         texture.Apply();
+         texture = Helpers.ComputeGradientUnderAngle(angle, size, texture);
+      }
+      
+      if(bg != null && bg.width != 0 && bg.height != 0) {
+         Color evaluationColor, finalColor;
+         var tempTex = new Texture2D(size, size);
+         for(int i = 0; i < bg.width; i++) {
+            for(int j = 0; j < bg.height; j++) {
+               evaluationColor = bg.GetPixel(i, j);
+               finalColor = Color.clear;
+               if(evaluationColor != Color.clear) {
+                  Color gradColor = texture.GetPixel(i, j);
+                  gradColor = new Color(gradColor.r, gradColor.g, gradColor.b, gradColor.a * ((float)opacity / 100.0f));
+                  finalColor = Helpers.GetFinalColor(blendType, gradColor, evaluationColor);
+               }
+               tempTex.SetPixel(i,j, finalColor);
+            }
+         }
+         tempTex.Apply();
+         texture = tempTex;
       }
    }
 
    public void CreateGradient() {
-      Texture2D bg = (background != null) ? Helpers.ScaleTexture(background, 256, 256) : new Texture2D(size, size);
-      UpdateGradient(out var finalTexture, 256, bg);
-      Texture2D final = Helpers.ScaleTexture(finalTexture, size, size);
-      System.Diagnostics.Stopwatch st = new System.Diagnostics.Stopwatch();
-      st.Start();
+      EditorUtility.DisplayProgressBar("Gradient Generator", "Saving gradient...", 50.0f);
+      Texture2D bg = (backgroundSmall != null) ? Helpers.ScaleTexture(background, size, size) : new Texture2D(size, size);
+      UpdateGradient(out var finalTexture, size, bg);
       try {
-         File.WriteAllBytes(Application.dataPath + (defaultSaveFolder == string.Empty ? "" : "/") + defaultSaveFolder + "/" + fileName + ".png", final.EncodeToPNG());
-         timeToCreate = st.ElapsedMilliseconds;
+         File.WriteAllBytes(Application.dataPath + (defaultSaveFolder == string.Empty ? "" : "/") + defaultSaveFolder + "/" + fileName + ".png", finalTexture.EncodeToPNG());
       } catch(Exception e) {
          Debug.LogError(e.Message);
       }
+      EditorUtility.ClearProgressBar();
       AssetDatabase.Refresh();
    }
 
